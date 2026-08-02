@@ -1,0 +1,14 @@
+# Ignore Virtual Environments
+venv/
+__pycache__/
+
+# Ignore Private Keys and Cookies
+config/credentials.env
+config/x_cookies.json
+config/client_secrets.json
+
+# Ignore Temporary Media
+watch_folder/input/*.mp4
+watch_folder/input/*.txt
+watch_folder/processing/*
+watch_folder/text_only/*.txt

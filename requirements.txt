@@ -1,0 +1,8 @@
+requests
+python-dotenv
+customtkinter
+playwright
+tiktok-uploader
+google-api-python-client
+google-auth-oauthlib
+google-auth-httplib2
