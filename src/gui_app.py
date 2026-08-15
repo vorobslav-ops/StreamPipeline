@@ -8,7 +8,8 @@ from dotenv import load_dotenv
 # Import workers
 import discord_worker
 import twitter_worker
-import audio_worker  # <-- NEW AUDIO WORKER
+import audio_worker
+import obs_worker  # <-- NEW OBS WORKER
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_DIR = os.path.join(BASE_DIR, "config")
@@ -39,11 +40,13 @@ class StreamPipelineApp(ctk.CTk):
 
         self.tab_text = self.tabview.add("Text Broadcast")
         self.tab_video = self.tabview.add("Video Clip Pipeline")
-        self.tab_mic = self.tabview.add("Mic Calibration") # <-- NEW TAB
+        self.tab_mic = self.tabview.add("Mic Calibration")
+        self.tab_obs = self.tabview.add("OBS Remote") # <-- NEW TAB
 
         self.setup_text_tab()
         self.setup_video_tab()
         self.setup_mic_tab()
+        self.setup_obs_tab()
 
         self.status_label = ctk.CTkLabel(self, text="System Ready", font=("Arial", 12, "italic"))
         self.status_label.pack(side="bottom", pady=5)
@@ -151,20 +154,17 @@ class StreamPipelineApp(ctk.CTk):
         desc = ctk.CTkLabel(self.tab_mic, text="Find the perfect threshold where PC fans vanish but your voice passes through.\nUse this number in your streaming software.", font=("Arial", 12))
         desc.pack(pady=5)
 
-        # Real-time preview toggle
         self.btn_toggle_mic = ctk.CTkButton(self.tab_mic, text="Start Mic Preview (Listen)", fg_color="darkred", hover_color="red", command=self.toggle_mic_preview)
         self.btn_toggle_mic.pack(pady=20)
 
         self.threshold_label = ctk.CTkLabel(self.tab_mic, text="Gate Threshold: 2.0%", font=("Arial", 14))
         self.threshold_label.pack(pady=5)
 
-        # Slider (0 to 100, which we convert to 0.0 to 0.1 for audio math)
         self.slider = ctk.CTkSlider(self.tab_mic, from_=0, to=10, number_of_steps=100, command=self.on_slider_move)
         self.slider.set(2)
         self.slider.pack(pady=10)
 
     def on_slider_move(self, value):
-        # Convert the UI slider value to a math threshold for the audio worker
         actual_threshold = value / 100.0
         self.threshold_label.configure(text=f"Gate Threshold: {value:.1f}%")
         if self.mic_tester.is_running:
@@ -173,7 +173,6 @@ class StreamPipelineApp(ctk.CTk):
     def toggle_mic_preview(self):
         if not self.mic_tester.is_running:
             try:
-                # Start listening
                 current_threshold = self.slider.get() / 100.0
                 self.mic_tester.start(current_threshold)
                 self.btn_toggle_mic.configure(text="Stop Mic Preview", fg_color="green", hover_color="darkgreen")
@@ -181,10 +180,49 @@ class StreamPipelineApp(ctk.CTk):
             except Exception as e:
                 self.update_status(f"Audio Error: {e}")
         else:
-            # Stop listening
             self.mic_tester.stop()
             self.btn_toggle_mic.configure(text="Start Mic Preview (Listen)", fg_color="darkred", hover_color="red")
             self.update_status("Mic preview stopped.")
+
+    # --- TAB 4: OBS REMOTE UI ---
+    def setup_obs_tab(self):
+        label = ctk.CTkLabel(self.tab_obs, text="OBS Studio Control", font=("Arial", 16, "bold"))
+        label.pack(pady=10)
+
+        desc = ctk.CTkLabel(self.tab_obs, text="Execute actions instantly over local WebSocket.", font=("Arial", 12))
+        desc.pack(pady=5)
+
+        self.btn_save_replay = ctk.CTkButton(self.tab_obs, text="Save Replay Buffer", fg_color="purple", hover_color="darkmagenta", command=self.trigger_save_replay)
+        self.btn_save_replay.pack(pady=20)
+
+        self.btn_toggle_mute = ctk.CTkButton(self.tab_obs, text="Toggle Mic Mute", fg_color="darkorange", hover_color="orange", command=self.trigger_toggle_mute)
+        self.btn_toggle_mute.pack(pady=10)
+
+    def trigger_save_replay(self):
+        self.update_status("Transmitting Replay Buffer command to OBS...")
+        threading.Thread(target=self._obs_replay_worker, daemon=True).start()
+
+    def _obs_replay_worker(self):
+        try:
+            worker = obs_worker.OBSWorker()
+            worker.save_replay()
+            self.update_status("Success: Replay Buffer saved!")
+        except Exception as e:
+            # If the user forgot to start the buffer in OBS, the WebSocket catches the error
+            self.update_status(f"OBS Error: Could not save buffer. Is it running? ({e})")
+
+    def trigger_toggle_mute(self):
+        self.update_status("Toggling Mic hardware mute...")
+        threading.Thread(target=self._obs_mute_worker, daemon=True).start()
+
+    def _obs_mute_worker(self):
+        try:
+            worker = obs_worker.OBSWorker()
+            # "Mic/Aux" is the default name in OBS; if you renamed it, update it here.
+            worker.toggle_mic_mute("Mic/Aux") 
+            self.update_status("Success: Mic mute toggled!")
+        except Exception as e:
+            self.update_status(f"OBS Error: Check Mic name or connection. ({e})")
 
 if __name__ == "__main__":
     app = StreamPipelineApp()
