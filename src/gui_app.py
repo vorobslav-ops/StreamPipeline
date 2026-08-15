@@ -1,6 +1,7 @@
 import os
 import shutil
 import threading
+import time
 import customtkinter as ctk
 from tkinter import filedialog
 from dotenv import load_dotenv
@@ -9,7 +10,10 @@ from dotenv import load_dotenv
 import discord_worker
 import twitter_worker
 import audio_worker
-import obs_worker  # <-- NEW OBS WORKER
+import obs_worker
+import obs_backup_worker
+import kick_worker
+KICK_COOKIES_PATH = os.path.join(CONFIG_DIR, "kick_cookies.json")
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_DIR = os.path.join(BASE_DIR, "config")
@@ -26,27 +30,27 @@ class StreamPipelineApp(ctk.CTk):
         super().__init__()
 
         self.title("StreamPipeline Command Center")
-        self.geometry("750 x 550")
+        self.geometry("750 x 700") # Expanded to fit the Go-Live module
         self.resizable(False, False)
 
         self.selected_video_path = ""
-        
-        # Initialize the audio tester backend
         self.mic_tester = audio_worker.NoiseGateTester()
 
         # --- TAB NAVIGATION ---
-        self.tabview = ctk.CTkTabview(self, width=710, height=480)
+        self.tabview = ctk.CTkTabview(self, width=710, height=630)
         self.tabview.pack(padx=20, pady=20)
 
         self.tab_text = self.tabview.add("Text Broadcast")
         self.tab_video = self.tabview.add("Video Clip Pipeline")
         self.tab_mic = self.tabview.add("Mic Calibration")
-        self.tab_obs = self.tabview.add("OBS Remote") # <-- NEW TAB
+        self.tab_obs = self.tabview.add("OBS Remote")
+        self.tab_sync = self.tabview.add("Metadata Sync")
 
         self.setup_text_tab()
         self.setup_video_tab()
         self.setup_mic_tab()
         self.setup_obs_tab()
+        self.setup_sync_tab()
 
         self.status_label = ctk.CTkLabel(self, text="System Ready", font=("Arial", 12, "italic"))
         self.status_label.pack(side="bottom", pady=5)
@@ -186,20 +190,93 @@ class StreamPipelineApp(ctk.CTk):
 
     # --- TAB 4: OBS REMOTE UI ---
     def setup_obs_tab(self):
+        # Quick Actions
         label = ctk.CTkLabel(self.tab_obs, text="OBS Studio Control", font=("Arial", 16, "bold"))
-        label.pack(pady=10)
-
-        desc = ctk.CTkLabel(self.tab_obs, text="Execute actions instantly over local WebSocket.", font=("Arial", 12))
-        desc.pack(pady=5)
+        label.pack(pady=5)
 
         self.btn_save_replay = ctk.CTkButton(self.tab_obs, text="Save Replay Buffer", fg_color="purple", hover_color="darkmagenta", command=self.trigger_save_replay)
-        self.btn_save_replay.pack(pady=20)
+        self.btn_save_replay.pack(pady=5)
 
         self.btn_toggle_mute = ctk.CTkButton(self.tab_obs, text="Toggle Mic Mute", fg_color="darkorange", hover_color="orange", command=self.trigger_toggle_mute)
-        self.btn_toggle_mute.pack(pady=10)
+        self.btn_toggle_mute.pack(pady=5)
+        
+        # Disaster Recovery
+        separator1 = ctk.CTkFrame(self.tab_obs, height=2, width=650, fg_color="gray30")
+        separator1.pack(pady=10)
 
+        dr_label = ctk.CTkLabel(self.tab_obs, text="Disaster Recovery", font=("Arial", 14, "bold"))
+        dr_label.pack(pady=2)
+
+        self.btn_backup = ctk.CTkButton(self.tab_obs, text="Backup OBS Settings", fg_color="teal", hover_color="darkcyan", command=self.trigger_backup)
+        self.btn_backup.pack(pady=5)
+
+        self.btn_restore = ctk.CTkButton(self.tab_obs, text="Restore Latest Backup", fg_color="darkred", hover_color="red", command=self.trigger_restore)
+        self.btn_restore.pack(pady=5)
+
+        # --- NEW: 1-CLICK GO-LIVE SEQUENCE ---
+        separator2 = ctk.CTkFrame(self.tab_obs, height=2, width=650, fg_color="gray30")
+        separator2.pack(pady=10)
+        
+        go_live_label = ctk.CTkLabel(self.tab_obs, text="Automated Go-Live Sequence", font=("Arial", 14, "bold"))
+        go_live_label.pack(pady=2)
+        
+        self.golive_input = ctk.CTkEntry(self.tab_obs, width=650, placeholder_text="Enter your Going Live announcement for X & Discord here...")
+        self.golive_input.pack(pady=5)
+        
+        self.countdown_label = ctk.CTkLabel(self.tab_obs, text="Timer: 00:00", font=("Arial", 18, "bold"), text_color="yellow")
+        self.countdown_label.pack(pady=5)
+
+        self.btn_golive = ctk.CTkButton(self.tab_obs, text="EXECUTE GO-LIVE (3-Minute Timer)", fg_color="green", hover_color="darkgreen", command=self.trigger_golive)
+        self.btn_golive.pack(pady=5)
+        
+    # --- TAB 5: METADATA SYNC UI ---
+    def setup_sync_tab(self):
+        label = ctk.CTkLabel(self.tab_sync, text="Cross-Platform Metadata Sync", font=("Arial", 16, "bold"))
+        label.pack(pady=10)
+
+        desc = ctk.CTkLabel(self.tab_sync, text="Update your stream title and game category across all platforms instantly.", font=("Arial", 12))
+        desc.pack(pady=5)
+
+        self.sync_title_input = ctk.CTkEntry(self.tab_sync, width=650, placeholder_text="New Stream Title...")
+        self.sync_title_input.pack(pady=15)
+
+        self.sync_category_input = ctk.CTkEntry(self.tab_sync, width=650, placeholder_text="Category (e.g., World of Warcraft)")
+        self.sync_category_input.pack(pady=15)
+
+        self.btn_sync_meta = ctk.CTkButton(self.tab_sync, text="Sync Metadata Across Platforms", fg_color="blue", hover_color="darkblue", command=self.trigger_sync_meta)
+        self.btn_sync_meta.pack(pady=20)
+
+    def trigger_sync_meta(self):
+        title = self.sync_title_input.get().strip()
+        category = self.sync_category_input.get().strip()
+        
+        if not title or not category:
+            self.update_status("Error: You must provide both a title and a category!")
+            return
+            
+        self.btn_sync_meta.configure(state="disabled")
+        self.update_status("Syncing metadata across network...")
+        threading.Thread(target=self._sync_worker, args=(title, category), daemon=True).start()
+
+    def _sync_worker(self, title, category):
+        try:
+            # Sync to Kick
+            self.update_status(f"Updating Kick: [{category}] {title}...")
+            kick_worker.sync_kick_metadata(title, category, KICK_COOKIES_PATH)
+            
+            # (Future: Add YouTube sync here)
+            
+            self.update_status("Success: Stream metadata synchronized!")
+            self.sync_title_input.delete(0, "end")
+            self.sync_category_input.delete(0, "end")
+        except Exception as e:
+            self.update_status(f"Sync Error: {e}")
+        finally:
+            self.btn_sync_meta.configure(state="normal")
+
+
+    # --- OBS ACTION TRIGGERS ---
     def trigger_save_replay(self):
-        self.update_status("Transmitting Replay Buffer command to OBS...")
         threading.Thread(target=self._obs_replay_worker, daemon=True).start()
 
     def _obs_replay_worker(self):
@@ -208,21 +285,95 @@ class StreamPipelineApp(ctk.CTk):
             worker.save_replay()
             self.update_status("Success: Replay Buffer saved!")
         except Exception as e:
-            # If the user forgot to start the buffer in OBS, the WebSocket catches the error
-            self.update_status(f"OBS Error: Could not save buffer. Is it running? ({e})")
+            self.update_status(f"OBS Error: Could not save buffer. ({e})")
 
     def trigger_toggle_mute(self):
-        self.update_status("Toggling Mic hardware mute...")
         threading.Thread(target=self._obs_mute_worker, daemon=True).start()
 
     def _obs_mute_worker(self):
         try:
             worker = obs_worker.OBSWorker()
-            # "Mic/Aux" is the default name in OBS; if you renamed it, update it here.
             worker.toggle_mic_mute("Mic/Aux") 
             self.update_status("Success: Mic mute toggled!")
         except Exception as e:
             self.update_status(f"OBS Error: Check Mic name or connection. ({e})")
+            
+    # --- DISASTER RECOVERY TRIGGERS ---
+    def trigger_backup(self):
+        self.update_status("Generating local OBS backup...")
+        threading.Thread(target=self._backup_worker, daemon=True).start()
+        
+    def _backup_worker(self):
+        try:
+            manager = obs_backup_worker.OBSBackupManager()
+            filename = manager.backup()
+            self.update_status(f"Success: OBS backed up to {filename}")
+        except Exception as e:
+            self.update_status(f"Backup Error: {e}")
+            
+    def trigger_restore(self):
+        self.update_status("Restoring OBS configurations from latest backup...")
+        threading.Thread(target=self._restore_worker, daemon=True).start()
+        
+    def _restore_worker(self):
+        try:
+            manager = obs_backup_worker.OBSBackupManager()
+            filename = manager.restore()
+            self.update_status(f"Success: Restored settings from {filename}. Restart OBS to see changes.")
+        except Exception as e:
+            self.update_status(f"Restore Error: {e}")
+
+    # --- GO-LIVE SEQUENCE TRIGGER ---
+    def trigger_golive(self):
+        announcement = self.golive_input.get().strip()
+        if not announcement:
+            self.update_status("Error: You must type a Go-Live announcement first!")
+            return
+            
+        self.btn_golive.configure(state="disabled")
+        self.update_status("Initiating 1-Click Go-Live Sequence...")
+        threading.Thread(target=self._golive_worker, args=(announcement,), daemon=True).start()
+
+    def _golive_worker(self, announcement):
+        try:
+            worker = obs_worker.OBSWorker()
+            starting_scene = os.getenv("OBS_STARTING_SCENE", "Starting Soon")
+            live_scene = os.getenv("OBS_LIVE_SCENE", "Live")
+
+            # 1. Start the actual stream in OBS
+            self.update_status("Starting OBS Stream...")
+            worker.start_stream()
+
+            # 2. Switch to Starting Soon
+            self.update_status(f"Switching to '{starting_scene}' scene...")
+            worker.change_scene(starting_scene)
+
+            # 3. Fire the Text Broadcasts
+            self.update_status("Broadcasting to X and Discord...")
+            discord_webhook = os.getenv("DISCORD_WEBHOOK_URL")
+            if discord_webhook:
+                discord_worker.share_link(discord_webhook, announcement)
+            twitter_worker.post_tweet_via_browser(announcement, X_COOKIES_PATH)
+
+            # 4. GUI Countdown Timer (3 Minutes = 180 seconds)
+            for remaining in range(180, 0, -1):
+                mins, secs = divmod(remaining, 60)
+                self.countdown_label.configure(text=f"Timer: {mins:02d}:{secs:02d}")
+                time.sleep(1)
+
+            # 5. Timer hits zero: Unmute mic and switch to Live
+            self.update_status(f"Timer complete! Switching to '{live_scene}'...")
+            worker.unmute_mic("Mic/Aux")
+            worker.change_scene(live_scene)
+            
+            self.countdown_label.configure(text="LIVE!")
+            self.update_status("Sequence complete. You are live.")
+
+        except Exception as e:
+            self.update_status(f"Sequence Error: {e}")
+        finally:
+            self.btn_golive.configure(state="normal")
+            self.golive_input.delete(0, "end")
 
 if __name__ == "__main__":
     app = StreamPipelineApp()

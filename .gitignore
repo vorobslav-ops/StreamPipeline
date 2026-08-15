@@ -12,3 +12,5 @@ watch_folder/input/*.mp4
 watch_folder/input/*.txt
 watch_folder/processing/*
 watch_folder/text_only/*.txt
+# Ignore Local OBS Backups
+backups/

@@ -19,3 +19,15 @@ class OBSWorker:
     def toggle_mic_mute(self, mic_name="Mic/Aux"):
         client = self._get_client()
         client.toggle_input_mute(mic_name)
+        
+    def unmute_mic(self, mic_name="Mic/Aux"):
+        client = self._get_client()
+        client.set_input_mute(mic_name, False)
+
+    def change_scene(self, scene_name):
+        client = self._get_client()
+        client.set_current_program_scene(scene_name)
+        
+    def start_stream(self):
+        client = self._get_client()
+        client.start_stream()
