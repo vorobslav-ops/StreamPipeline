@@ -5,7 +5,7 @@ class OBSWorker:
     def __init__(self):
         # Pull credentials from the .env file loaded by the GUI
         self.host = os.getenv("OBS_HOST", "localhost")
-        self.port = os.getenv("OBS_PORT", "4455")
+        self.port = int(os.getenv("OBS_PORT", 4455))
         self.password = os.getenv("OBS_PASSWORD", "")
 
     def _get_client(self):

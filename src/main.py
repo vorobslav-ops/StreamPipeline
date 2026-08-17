@@ -17,6 +17,10 @@ def parse_metadata(meta_path):
     return title, desc
 
 def run():
+    # Ensure folders exist before scanning
+    os.makedirs(INPUT_DIR, exist_ok=True)
+    os.makedirs(PROCESSING_DIR, exist_ok=True)
+
     print("[SYSTEM] Scanning watch_folder/input...")
     files = os.listdir(INPUT_DIR)
     videos = [f for f in files if f.endswith('.mp4')]

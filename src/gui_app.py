@@ -13,12 +13,11 @@ import audio_worker
 import obs_worker
 import obs_backup_worker
 import kick_worker
-KICK_COOKIES_PATH = os.path.join(CONFIG_DIR, "kick_cookies.json")
-
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_DIR = os.path.join(BASE_DIR, "config")
 X_COOKIES_PATH = os.path.join(CONFIG_DIR, "x_cookies.json")
 CREDENTIALS_PATH = os.path.join(CONFIG_DIR, "credentials.env")
+KICK_COOKIES_PATH = os.path.join(CONFIG_DIR, "kick_cookies.json")
 
 load_dotenv(CREDENTIALS_PATH)
 
@@ -30,7 +29,7 @@ class StreamPipelineApp(ctk.CTk):
         super().__init__()
 
         self.title("StreamPipeline Command Center")
-        self.geometry("750 x 700") # Expanded to fit the Go-Live module
+        self.geometry("750x700")
         self.resizable(False, False)
 
         self.selected_video_path = ""
